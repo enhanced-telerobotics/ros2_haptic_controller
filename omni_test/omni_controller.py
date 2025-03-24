@@ -8,6 +8,8 @@ from rclpy.node import Node
 from geometry_msgs.msg import Vector3, PoseStamped
 from std_msgs.msg import Header
 from sensor_msgs.msg import Joy
+import time
+from scipy.spatial.transform import Rotation as R
 
 # Data class to keep track of the device state and use it in other parts of the code
 @dataclass
@@ -24,22 +26,22 @@ Kp = 0
 # Callback to gather the device state and publish it
 @hd_callback
 def device_callback():
-    global device_state
+    global device_state, Kp
     position = hd.get_position()
     velocity = hd.get_velocity()
-    global Kp
+    transform = hd.get_transform()
     damping_factor = 0.002  # Damping factor for velocity
 
-    if not omni_encoder_node.is_start:
-        if Kp < 0.2:
-            Kp += 0.00025
-        force = Kp * (np.array([0.0, 0.0, 0.0]) - np.array(position)) - damping_factor * np.array(velocity)
-        if np.linalg.norm(np.array([0.0, 0.0, 0.0]) - np.array(position)) < 5.0:
-            Kp = 0.5
-        hd.set_force(force)
-    else:
-        hd.set_force([0.0, 0.0, 0.0])
-        Kp = 0
+    # if not omni_encoder_node.is_start:
+    #     if Kp < 0.2:
+    #         Kp += 0.00025
+    #     force = Kp * (np.array([0.0, 0.0, 0.0]) - np.array(position)) - damping_factor * np.array(velocity)
+    #     if np.linalg.norm(np.array([0.0, 0.0, 0.0]) - np.array(position)) < 5.0:
+    #         Kp = 0.5
+    #     hd.set_force(force)
+    # else:
+    #     hd.set_force([0.0, 0.0, 0.0])
+    #     Kp = 0
 
     device_state.position = np.array(position) / 1000
     device_state.velocity = velocity
@@ -48,11 +50,30 @@ def device_callback():
     pos_msg = PoseStamped()
     pos_msg.header = Header()
     pos_msg.header.stamp = omni_encoder_node.get_clock().now().to_msg()
-    pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = -device_state.position[0], device_state.position[1], -device_state.position[2]
-    pos_msg.pose.orientation.x = 0.0
-    pos_msg.pose.orientation.y = 0.0
-    pos_msg.pose.orientation.z = 0.0
-    pos_msg.pose.orientation.w = 1.0
+    
+    # This is the transformation to match the omni's coordinate system with the user study sim
+    # pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = -device_state.position[0], device_state.position[1], -device_state.position[2]
+    # This is the transformation to match the omni's coordinate system with the dvrk
+    pos_msg.pose.position.x, pos_msg.pose.position.y, pos_msg.pose.position.z = device_state.position[0], device_state.position[1], device_state.position[2]
+    # Extract rotation matrix from the transform
+    rotation_matrix = np.array(transform).reshape(4, 4)[:3, :3]
+    
+    # Convert rotation matrix to quaternion using scipy
+    quaternion = R.from_matrix(rotation_matrix).as_quat()
+
+    # Assign quaternion to pose orientation
+    # Apply a simple filter to smooth out fluctuations in the quaternion
+    alpha = 0.1  # Smoothing factor
+    if not hasattr(device_callback, "last_quaternion"):
+        device_callback.last_quaternion = quaternion
+    else:
+        quaternion = alpha * quaternion + (1 - alpha) * device_callback.last_quaternion
+        device_callback.last_quaternion = quaternion
+
+    pos_msg.pose.orientation.x = quaternion[0]
+    pos_msg.pose.orientation.y = quaternion[1]
+    pos_msg.pose.orientation.z = quaternion[2]
+    pos_msg.pose.orientation.w = quaternion[3]
     omni_encoder_node.position_publisher.publish(pos_msg)
 
     # Create and publish velocity message
@@ -78,6 +99,7 @@ class OmniEncoderNode(Node):
 
     def robot_callback(self, msg):
         if msg.y == 1:
+            time.sleep(1)  # Wait 0.2s every time is_start is changed to True
             self.is_start = True
         if msg.z == 1:
             self.is_start = False
