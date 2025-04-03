@@ -28,18 +28,18 @@ def device_callback():
     position = hd.get_position()
     velocity = hd.get_velocity()
     global Kp
-    damping_factor = 0.002  # Damping factor for velocity
+    # damping_factor = 0.0024  # Damping factor for velocity
 
-    if not omni_encoder_node.is_start:
-        if Kp < 0.2:
-            Kp += 0.00025
-        force = Kp * (np.array([0.0, 0.0, 0.0]) - np.array(position)) - damping_factor * np.array(velocity)
-        if np.linalg.norm(np.array([0.0, 0.0, 0.0]) - np.array(position)) < 5.0:
-            Kp = 0.5
-        hd.set_force(force)
-    else:
-        hd.set_force([0.0, 0.0, 0.0])
-        Kp = 0
+    # if not omni_encoder_node.is_start:
+    #     if Kp < 0.2:
+    #         Kp += 0.00025
+    #     force = Kp * (np.array([0.0, 0.0, 0.0]) - np.array(position)) - damping_factor * np.array(velocity)
+    #     if np.linalg.norm(np.array([0.0, 0.0, 0.0]) - np.array(position)) < 5.0:
+    #         Kp = 0.4
+    #     hd.set_force(force)
+    # else:
+    #     hd.set_force([0.0, 0.0, 0.0])
+    #     Kp = 0
 
     device_state.position = np.array(position) / 1000
     device_state.velocity = velocity
@@ -48,7 +48,7 @@ def device_callback():
     pos_msg = PoseStamped()
     pos_msg.header = Header()
     pos_msg.header.stamp = omni_encoder_node.get_clock().now().to_msg()
-    pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = -device_state.position[0], device_state.position[1], -device_state.position[2]
+    pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = device_state.position[0], device_state.position[1], device_state.position[2]
     pos_msg.pose.orientation.x = 0.0
     pos_msg.pose.orientation.y = 0.0
     pos_msg.pose.orientation.z = 0.0
