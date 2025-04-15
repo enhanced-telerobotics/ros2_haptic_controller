@@ -8,6 +8,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Vector3, PoseStamped
 from std_msgs.msg import Header
 from sensor_msgs.msg import Joy
+from scipy.spatial.transform import Rotation as R
 
 # Data class to keep track of the device state and use it in other parts of the code
 @dataclass
@@ -16,43 +17,52 @@ class DeviceState:
     velocity: tuple = (0.0, 0.0, 0.0)
     force: tuple = (0.0, 0.0, 0.0)
     transform: list = None
-    button: int = 0
+    btn_state: int = 0
+    grey_btn: int = 0
+    white_btn: int = 0
 
 # Initialize the device state
 device_state = DeviceState()
 Kp = 0
+
 # Callback to gather the device state and publish it
 @hd_callback
 def device_callback():
-    global device_state
+    global device_state, Kp
     position = hd.get_position()
     velocity = hd.get_velocity()
-    global Kp
-    # damping_factor = 0.0024  # Damping factor for velocity
+    transform = hd.get_transform()
+    device_state.position = np.array(position) / 1000
+    device_state.velocity = velocity
+    device_state.btn_state = hd.get_buttons()
+    device_state.grey_btn = device_state.btn_state & hd.HD_DEVICE_BUTTON_1
+    device_state.white_btn = device_state.btn_state & hd.HD_DEVICE_BUTTON_2
+
+    # PID control to set position to (0, 0, 0)
+    # damping_factor = 0.002  # Damping factor for velocity
 
     # if not omni_encoder_node.is_start:
     #     if Kp < 0.2:
     #         Kp += 0.00025
     #     force = Kp * (np.array([0.0, 0.0, 0.0]) - np.array(position)) - damping_factor * np.array(velocity)
     #     if np.linalg.norm(np.array([0.0, 0.0, 0.0]) - np.array(position)) < 5.0:
-    #         Kp = 0.4
+    #         Kp = 0.5
     #     hd.set_force(force)
     # else:
     #     hd.set_force([0.0, 0.0, 0.0])
     #     Kp = 0
-
-    device_state.position = np.array(position) / 1000
-    device_state.velocity = velocity
-    device_state.button = hd.get_buttons()
     # Create and publish position message as PoseStamped
     pos_msg = PoseStamped()
     pos_msg.header = Header()
     pos_msg.header.stamp = omni_encoder_node.get_clock().now().to_msg()
     pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = device_state.position[0], device_state.position[1], device_state.position[2]
-    pos_msg.pose.orientation.x = 0.0
-    pos_msg.pose.orientation.y = 0.0
-    pos_msg.pose.orientation.z = 0.0
-    pos_msg.pose.orientation.w = 1.0
+    rotation_matrix = np.array(transform).reshape(4, 4)[:3, :3]
+    r = R.from_matrix(rotation_matrix)
+    quaternion = r.as_quat()  # Returns [x, y, z, w]
+    pos_msg.pose.orientation.x = quaternion[0]
+    pos_msg.pose.orientation.y = quaternion[1]
+    pos_msg.pose.orientation.z = quaternion[2]
+    pos_msg.pose.orientation.w = quaternion[3]
     omni_encoder_node.position_publisher.publish(pos_msg)
 
     # Create and publish velocity message
@@ -63,7 +73,7 @@ def device_callback():
     button_msg = Joy()
     button_msg.header = Header()
     button_msg.header.stamp = omni_encoder_node.get_clock().now().to_msg()
-    button_msg.buttons = [device_state.button]
+    button_msg.buttons = [device_state.grey_btn]
     omni_encoder_node.button_publisher.publish(button_msg)
 
 class OmniEncoderNode(Node):
@@ -94,11 +104,11 @@ def main(args=None):
         rclpy.spin(omni_encoder_node)
     except KeyboardInterrupt:
         pass
-
-    # Close the device to avoid segmentation faults
-    device.close()
-    omni_encoder_node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        # Ensure proper cleanup
+        device.close()
+        omni_encoder_node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == "__main__":
     main()
