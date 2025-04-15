@@ -8,10 +8,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Vector3, PoseStamped
 from std_msgs.msg import Header
 from sensor_msgs.msg import Joy
-<<<<<<< HEAD
-=======
 import time
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
 from scipy.spatial.transform import Rotation as R
 
 # Data class to keep track of the device state and use it in other parts of the code
@@ -36,8 +33,6 @@ def device_callback():
     position = hd.get_position()
     velocity = hd.get_velocity()
     transform = hd.get_transform()
-<<<<<<< HEAD
-=======
     damping_factor = 0.002  # Damping factor for velocity
 
     # if not omni_encoder_node.is_start:
@@ -51,7 +46,6 @@ def device_callback():
     #     hd.set_force([0.0, 0.0, 0.0])
     #     Kp = 0
 
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
     device_state.position = np.array(position) / 1000
     device_state.velocity = velocity
     device_state.btn_state = hd.get_buttons()
@@ -75,12 +69,6 @@ def device_callback():
     pos_msg = PoseStamped()
     pos_msg.header = Header()
     pos_msg.header.stamp = omni_encoder_node.get_clock().now().to_msg()
-<<<<<<< HEAD
-    pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = device_state.position[0], device_state.position[1], device_state.position[2]
-    rotation_matrix = np.array(transform).reshape(4, 4)[:3, :3]
-    r = R.from_matrix(rotation_matrix)
-    quaternion = r.as_quat()  # Returns [x, y, z, w]
-=======
     
     # This is the transformation to match the omni's coordinate system with the user study sim
     # pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = -device_state.position[0], device_state.position[1], -device_state.position[2]
@@ -101,7 +89,6 @@ def device_callback():
         quaternion = alpha * quaternion + (1 - alpha) * device_callback.last_quaternion
         device_callback.last_quaternion = quaternion
 
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
     pos_msg.pose.orientation.x = quaternion[0]
     pos_msg.pose.orientation.y = quaternion[1]
     pos_msg.pose.orientation.z = quaternion[2]
