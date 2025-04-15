@@ -1,0 +1,30 @@
+{
+    "python.analysis.extraPaths": [
+        "/home/erie_lab/dvrk_ws/install/cisst/lib",
+        "/home/erie_lab/ros2_ws/install/omni_test/lib/python3.10/site-packages",
+        "/home/erie_lab/dvrk_ws/install/cisst/lib",
+        "/home/erie_lab/dvrk_ws/install/dvrk_python/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/dvrk_camera_registration/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/crtk_python_client/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/crtk_msgs/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/cisst_msgs/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/cisst/lib",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages",
+        "/usr/lib/python3/dist-packages",
+        "/home/erie_lab/envs/torch/lib/python3.10/site-packages"
+    ],
+    "python.autoComplete.extraPaths": [
+        "/home/erie_lab/dvrk_ws/install/cisst/lib",
+        "/home/erie_lab/ros2_ws/install/omni_test/lib/python3.10/site-packages",
+        "/home/erie_lab/dvrk_ws/install/cisst/lib",
+        "/home/erie_lab/dvrk_ws/install/dvrk_python/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/dvrk_camera_registration/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/crtk_python_client/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/crtk_msgs/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/cisst_msgs/local/lib/python3.10/dist-packages",
+        "/home/erie_lab/dvrk_ws/install/cisst/lib",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}

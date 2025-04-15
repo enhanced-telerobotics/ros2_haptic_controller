@@ -1,0 +1,25 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/erie_lab/dvrk_ws/install/cisst_ros_crtk/include/**",
+        "/home/erie_lab/dvrk_ws/install/crtk_msgs/include/**",
+        "/home/erie_lab/dvrk_ws/install/cisst_ros_bridge/include/**",
+        "/home/erie_lab/dvrk_ws/install/cisst_msgs/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/erie_lab/ros2_ws/src/dvrk_magewell/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

@@ -8,100 +8,94 @@ from rclpy.node import Node
 from geometry_msgs.msg import Vector3, PoseStamped
 from std_msgs.msg import Header
 from sensor_msgs.msg import Joy
-<<<<<<< HEAD
-=======
-import time
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
 from scipy.spatial.transform import Rotation as R
 
+# Define the transformation matrix according to DH parameters
+def dh_transform(theta, d, a, alpha):
+    """
+    Calculate the transformation matrix from DH parameters.
+
+    Parameters:
+    - theta: rotation angle around the previous z-axis (in radians)
+    - d: distance along the previous z-axis
+    - a: length of the common normal (distance along the previous x-axis)
+    - alpha: angle about the common normal, from the previous z-axis to the new z-axis (in radians)
+
+    Returns:
+    - 4x4 NumPy array representing the transformation matrix
+    """
+    # Define the transformation matrix according to DH parameters
+    transform_matrix = np.array([
+        [np.cos(theta), -np.sin(theta) * np.cos(alpha),
+         np.sin(theta) * np.sin(alpha), a * np.cos(theta)],
+        [np.sin(theta),  np.cos(theta) * np.cos(alpha), -
+         np.cos(theta) * np.sin(alpha), a * np.sin(theta)],
+        [0,              np.sin(alpha),                 np.cos(
+            alpha),                 d],
+        [0,              0,
+            0,                             1]
+    ])
+
+    return transform_matrix
+
+
+def get_transform(joints, gimbals):
+    T = dh_transform(-joints[0], 110, 0, -np.radians(90))
+    T = np.dot(T,
+               dh_transform(-joints[1], 0, 133.35, 0))
+    T = np.dot(T,
+               dh_transform(-joints[2]+np.radians(180), 0, 0, np.radians(90)))
+    T = np.dot(T,
+               dh_transform(-gimbals[0]+np.radians(180), 133.35, 0, np.radians(90)))
+    T = np.dot(T,
+               dh_transform(-gimbals[1]+np.radians(-90), 0, 0, np.radians(90)))
+    T = np.dot(T,
+               dh_transform(gimbals[2]+np.radians(90), 0, 0, np.radians(90)))
+
+    return T
 # Data class to keep track of the device state and use it in other parts of the code
 @dataclass
 class DeviceState:
     position: tuple = (0.0, 0.0, 0.0)
     velocity: tuple = (0.0, 0.0, 0.0)
+    joints: tuple = (0.0, 0.0, 0.0)
+    gimbals: tuple = (0.0, 0.0, 0.0)
     force: tuple = (0.0, 0.0, 0.0)
     transform: list = None
-    btn_state: int = 0
-    grey_btn: int = 0
-    white_btn: int = 0
-
+    button: int = 0
+    
 # Initialize the device state
 device_state = DeviceState()
 Kp = 0
-
 # Callback to gather the device state and publish it
 @hd_callback
 def device_callback():
-    global device_state, Kp
+    global device_state
     position = hd.get_position()
     velocity = hd.get_velocity()
     transform = hd.get_transform()
-<<<<<<< HEAD
-=======
-    damping_factor = 0.002  # Damping factor for velocity
+    joints = hd.get_joints()
+    gimbals = hd.get_gimbals()
+    
+    global Kp
+    # Convert the transform matrix into a quaternion using scipy
 
-    # if not omni_encoder_node.is_start:
-    #     if Kp < 0.2:
-    #         Kp += 0.00025
-    #     force = Kp * (np.array([0.0, 0.0, 0.0]) - np.array(position)) - damping_factor * np.array(velocity)
-    #     if np.linalg.norm(np.array([0.0, 0.0, 0.0]) - np.array(position)) < 5.0:
-    #         Kp = 0.5
-    #     hd.set_force(force)
-    # else:
-    #     hd.set_force([0.0, 0.0, 0.0])
-    #     Kp = 0
 
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
     device_state.position = np.array(position) / 1000
     device_state.velocity = velocity
-    device_state.btn_state = hd.get_buttons()
-    device_state.grey_btn = device_state.btn_state & hd.HD_DEVICE_BUTTON_1
-    device_state.white_btn = device_state.btn_state & hd.HD_DEVICE_BUTTON_2
-
-    # PID control to set position to (0, 0, 0)
-    # damping_factor = 0.002  # Damping factor for velocity
-
-    # if not omni_encoder_node.is_start:
-    #     if Kp < 0.2:
-    #         Kp += 0.00025
-    #     force = Kp * (np.array([0.0, 0.0, 0.0]) - np.array(position)) - damping_factor * np.array(velocity)
-    #     if np.linalg.norm(np.array([0.0, 0.0, 0.0]) - np.array(position)) < 5.0:
-    #         Kp = 0.5
-    #     hd.set_force(force)
-    # else:
-    #     hd.set_force([0.0, 0.0, 0.0])
-    #     Kp = 0
+    device_state.button = hd.get_buttons()
+    device_state.joints = [joints[0], joints[1], joints[2]]
+    device_state.gimbals = [gimbals[0], gimbals[1], gimbals[2]]
     # Create and publish position message as PoseStamped
     pos_msg = PoseStamped()
     pos_msg.header = Header()
     pos_msg.header.stamp = omni_encoder_node.get_clock().now().to_msg()
-<<<<<<< HEAD
+    transform = get_transform(
+        device_state.joints, np.array(device_state.gimbals))
     pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = device_state.position[0], device_state.position[1], device_state.position[2]
     rotation_matrix = np.array(transform).reshape(4, 4)[:3, :3]
     r = R.from_matrix(rotation_matrix)
     quaternion = r.as_quat()  # Returns [x, y, z, w]
-=======
-    
-    # This is the transformation to match the omni's coordinate system with the user study sim
-    # pos_msg.pose.position.y, pos_msg.pose.position.z, pos_msg.pose.position.x = -device_state.position[0], device_state.position[1], -device_state.position[2]
-    # This is the transformation to match the omni's coordinate system with the dvrk
-    pos_msg.pose.position.x, pos_msg.pose.position.y, pos_msg.pose.position.z = device_state.position[0], device_state.position[1], device_state.position[2]
-    # Extract rotation matrix from the transform
-    rotation_matrix = np.array(transform).reshape(4, 4)[:3, :3]
-    
-    # Convert rotation matrix to quaternion using scipy
-    quaternion = R.from_matrix(rotation_matrix).as_quat()
-
-    # Assign quaternion to pose orientation
-    # Apply a simple filter to smooth out fluctuations in the quaternion
-    alpha = 0.1  # Smoothing factor
-    if not hasattr(device_callback, "last_quaternion"):
-        device_callback.last_quaternion = quaternion
-    else:
-        quaternion = alpha * quaternion + (1 - alpha) * device_callback.last_quaternion
-        device_callback.last_quaternion = quaternion
-
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
     pos_msg.pose.orientation.x = quaternion[0]
     pos_msg.pose.orientation.y = quaternion[1]
     pos_msg.pose.orientation.z = quaternion[2]
@@ -116,7 +110,7 @@ def device_callback():
     button_msg = Joy()
     button_msg.header = Header()
     button_msg.header.stamp = omni_encoder_node.get_clock().now().to_msg()
-    button_msg.buttons = [device_state.grey_btn]
+    button_msg.buttons = [device_state.button]
     omni_encoder_node.button_publisher.publish(button_msg)
 
 class OmniEncoderNode(Node):
@@ -131,7 +125,6 @@ class OmniEncoderNode(Node):
 
     def robot_callback(self, msg):
         if msg.y == 1:
-            time.sleep(1)  # Wait 0.2s every time is_start is changed to True
             self.is_start = True
         if msg.z == 1:
             self.is_start = False
@@ -148,11 +141,11 @@ def main(args=None):
         rclpy.spin(omni_encoder_node)
     except KeyboardInterrupt:
         pass
-    finally:
-        # Ensure proper cleanup
-        device.close()
-        omni_encoder_node.destroy_node()
-        rclpy.shutdown()
+
+    # Close the device to avoid segmentation faults
+    device.close()
+    omni_encoder_node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == "__main__":
     main()
