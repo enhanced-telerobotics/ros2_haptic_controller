@@ -8,7 +8,7 @@ import PyKDL
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
-import numpy
+import numpy as np
 import math
 
 
@@ -20,7 +20,7 @@ class Omni(Node):
         self.target_pose = None  # Stores the latest pose message
         self.initial_pose = None  # Stores the last received pose message
         self.lock = threading.Lock()  # Prevents race conditions
-        self.diff = numpy.zeros(3)
+        self.diff = np.zeros(3)
 
     def robot_callback(self, msg):
         with self.lock:
@@ -48,7 +48,7 @@ class device:
 
 
 class run_teleoperation:
-    def __init__(self, ral, arm_name, teleop, period=0.005):
+    def __init__(self, ral, arm_name, teleop, period=0.0025):
         print(f'> Configuring dvrk_arm_test for {arm_name}')
         self.ral = ral
         self.arm_name = arm_name
@@ -85,19 +85,43 @@ class run_teleoperation:
                 # Create a new goal from received pose
                 goal = PyKDL.Frame()
                 omni_translation = PyKDL.Frame()
+                cp = self.arm.setpoint_cp()
                 if initial_pose is not None:
                     omni_translation.p = PyKDL.Vector(-(target_pose.position.y - initial_pose.position.y),
                                                       target_pose.position.x - initial_pose.position.x,
                                                       target_pose.position.z - initial_pose.position.z)
+                    # initial_rotation = PyKDL.Rotation.RotZ(math.radians(180)) * PyKDL.Rotation.Quaternion(
+                    #     initial_pose.orientation.x,
+                    #     initial_pose.orientation.y,
+                    #     initial_pose.orientation.z,
+                    #     initial_pose.orientation.w)
+                    # target_rotation = PyKDL.Rotation.Quaternion(
+                    #     target_pose.orientation.x,
+                    #     target_pose.orientation.y,
+                    #     target_pose.orientation.z,
+                    #     target_pose.orientation.w)
+                    # omni_flip = PyKDL.Rotation(1, 0, 0,
+                    #                    0, 1, 0,
+                    #                    0, 0, 1)
+                    
+                    # # target_rotation = omni_flip * target_rotation * omni_flip
+                    # initial_rotation = omni_flip * initial_rotation * omni_flip
+                    # omni_translation.M  = target_rotation
                 else:
                     omni_translation.p = PyKDL.Vector(0.0, 0.0, 0.0)
+                    omni_translation.M = cp.M
+                
                 # goal.M = PyKDL.Rotation.Quaternion(target_pose.orientation.x,
                 #                                    target_pose.orientation.y,
                 #                                    target_pose.orientation.z,
                 #                                    target_pose.orientation.w)
-                cp = self.arm.setpoint_cp()
+                dvrk_rotation = PyKDL.Rotation.Quaternion(
+                    np.sqrt(0.5),
+                    0,
+                    np.sqrt(0.5),
+                    0)
                 goal.p = cp.p + omni_translation.p
-                goal.M = cp.M  # Keep the same orientation
+                goal.M = cp.M
                 self.arm.servo_cp(goal)
                 # Ensure loop runs at desired frequency
                 sleep_rate.sleep()
@@ -107,28 +131,40 @@ class run_teleoperation:
         jp = self.arm.setpoint_jp()
         ecm_jp = self.ecm.setpoint_jp()
 
-        goal = numpy.copy(jp)
-        camera_goal = numpy.copy(ecm_jp)
+        joint_goal = np.copy(jp)
+        camera_goal = np.copy(ecm_jp)
         if ((self.arm_name.endswith('PSM1')) or (self.arm_name.endswith('PSM2'))):
             print('  > preparing for cartesian motion')
             # set in position joint mode
-            goal[0] = math.radians(55)
-            goal[1] = math.radians(0)
-            goal[2] = 0.12
-            goal[3] = math.radians(0)
-            goal[4] = math.radians(0)
-            goal[5] = math.radians(0)
-            self.arm.move_jp(goal).wait()
+            joint_goal[0] = math.radians(55)
+            joint_goal[1] = math.radians(0)
+            joint_goal[2] = 0.14
+            joint_goal[3] = math.radians(0)
+            joint_goal[4] = -0.00505554962626077
+            joint_goal[5] = -0.9518453492970927
+            self.arm.move_jp(joint_goal).wait()
+            
+            cp = self.arm.setpoint_cp()
+            rot_goal = PyKDL.Frame()
+            dvrk_rotation = PyKDL.Rotation.Quaternion(
+                    np.sqrt(0.5),
+                    0,
+                    np.sqrt(0.5),
+                    0)
+            rot_goal.p = cp.p
+            rot_goal.M = PyKDL.Rotation.RotZ(np.radians(90)) * PyKDL.Rotation.RotY(np.radians(90))* dvrk_rotation
+            # self.arm.move_cp(rot_goal).wait()
             print('  < ready for cartesian mode')
             print('  > preparing for camera position')
             # set in position joint mode
             camera_goal[0] = math.radians(0)
-            camera_goal[1] = math.radians(0)
-            camera_goal[2] = 0.185
+            camera_goal[1] = math.radians(-5)
+            camera_goal[2] = 0.15
             camera_goal[3] = math.radians(0)
             self.ecm.move_jp(camera_goal).wait()
             print('  > camera position ready')
             print('  < ready for cartesian mode')
+            time.sleep(0.5)
 
     def run(self):
         self.home()
@@ -167,5 +203,5 @@ if __name__ == '__main__':
     ral.spin_and_execute(application.run)
 
     # Shutdown ROS 2 properly
-    rclpy.shutdown()
     omni_thread.join()
+    rclpy.shutdown()
