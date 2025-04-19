@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import HaplyHardwareAPI
+import os
 import time
 import numpy as np
 import threading
@@ -8,15 +9,27 @@ import json
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import Joy
 # Detect and connect to the Inverse3 device
 connected_devices = HaplyHardwareAPI.detect_inverse3s()
+connected_handles = HaplyHardwareAPI.detect_handles()
+
 if not connected_devices:
     raise RuntimeError("No Inverse3 devices detected.")
-com_stream = HaplyHardwareAPI.SerialStream(connected_devices[0])
-inverse3 = HaplyHardwareAPI.Inverse3(com_stream)
-response_to_wakeup = inverse3.device_wakeup_dict()
-print("Connected to device {}".format(response_to_wakeup["device_id"]))
+if not connected_handles:
+    raise RuntimeError("No Inverse3 handles detected.")
 
+print(f"Connected devices: {connected_devices}")
+print(f"Detected handles: {connected_handles}")
+
+# Initialize device and handle
+com_stream = HaplyHardwareAPI.SerialStream(connected_devices[0])
+connected_handles_stream = HaplyHardwareAPI.SerialStream(connected_handles[0])
+inverse3 = HaplyHardwareAPI.Inverse3(com_stream)
+verse_grip = HaplyHardwareAPI.Handle(connected_handles_stream)
+response_to_wakeup = inverse3.device_wakeup_dict()
+print("Connected to device {}".format(response_to_wakeup["device_id"])) 
+print("Connected to handle {}".format(verse_grip.GetVersegripStatus()))
 # Parameters
 loop_time = 0.001  # 1ms
 # Force model for cube boundaries
@@ -35,15 +48,18 @@ def force_cube(cube_center, cube_size, device_position, stiffness):
 class Inverse3Controller(Node):
     def __init__(self):
         super().__init__('inverse3_controller')
-        self.publisher_ = self.create_publisher(PoseStamped, 'inv3_pose', 10)
+        self.pose_publisher = self.create_publisher(PoseStamped, 'inv3_pose', 10)
+        self.btn_publisher = self.create_publisher(Joy, 'inv3_btn', 10)
         self.loop_time = loop_time
+        self.cal_file = os.path.join(
+            os.path.dirname(__file__), 'device_cal/inverse3_cali_param.json')
         self.R_to_world = self.load_calibration_matrix()
         self.control_thread = threading.Thread(target=self.control_loop, daemon=True)
         self.control_thread.start()
 
     def load_calibration_matrix(self):
         try:
-            with open('./omni_test/omni_test/inverse3_cali_param.json', 'r') as f:
+            with open(self.cal_file, 'r') as f:
                 R_to_world = np.array(json.load(f))
                 if R_to_world.shape != (3, 3):
                     raise ValueError("Invalid calibration matrix shape.")
@@ -63,18 +79,26 @@ class Inverse3Controller(Node):
                 # Get position and velocity from the device
                 position, velocity = inverse3.end_effector_force(forces)
                 calibrated_position = position @ self.R_to_world.T
-
                 # Publish the position
                 msg = PoseStamped()
+                btn = Joy()
+                btn.buttons = [0, 0]  # Initialize buttons with a list of zeros
+                if verse_grip.GetVersegripStatus()['buttons'] == 1: 
+                    btn.buttons[0] = 1
+                elif verse_grip.GetVersegripStatus()['buttons'] == 2:
+                    btn.buttons[1] = 1
                 msg.header.stamp = self.get_clock().now().to_msg()
                 msg.header.frame_id = "inv3_frame"
-                msg.pose.position.x = calibrated_position[0]
-                msg.pose.position.y = calibrated_position[1]
+                # msg.pose.position.x = calibrated_position[0] # Uncomment for dvrk
+                # msg.pose.position.y = calibrated_position[1]
+                msg.pose.position.x = -calibrated_position[0]
+                msg.pose.position.y = -calibrated_position[1]
                 msg.pose.position.z = calibrated_position[2]
-                self.publisher_.publish(msg)
-
-                # Compute forces based on the cube boundary model
-                forces = force_cube([0, -0.14, 0.2], 0.04, calibrated_position, stiffness=1200)
+                self.pose_publisher.publish(msg)
+                self.btn_publisher.publish(btn)
+                # Compute forces based 
+                # on the cube boundary model
+                # forces = force_cube([0, -0.14, 0.2], 0.04, calibrated_position, stiffness=1200)
 
                 # Loop timing control
                 elapsed_time = time.perf_counter() - start_time
