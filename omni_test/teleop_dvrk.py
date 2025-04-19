@@ -17,24 +17,51 @@ class Omni(Node):
         super().__init__('omni_teleop_node')
         self.robot_subscriber = self.create_subscription(
             Pose, 'delayed_pose', self.robot_callback, 10)
-        self.jaw_subscriber = self.create_subscription(
-            Joy, 'joy', self.joy_callback, 10)
+        self.inv3_btn_subscriber = self.create_subscription(
+            Joy, 'inv3_btn', self.btn_callback, 10)
         self.target_pose = None  # Stores the latest pose message
         self.initial_pose = None  # Stores the last received pose message
         self.jaw_closed = False
+        self.is_clutch = False
+        self.diff = np.zeros(3)  # Difference between target and current position
+        self.teleop_runner = None  # Placeholder for teleoperation runner
         self.lock = threading.Lock()  # Prevents race conditions
-    def joy_callback(self, msg):
+        self.goal = None
+
+        
+    def btn_callback(self, msg):
         with self.lock:
-            # Check if the jaw button is pressed
-            if msg.buttons[0] == 1:
-                self.jaw_closed = True
-            else:
-                self.jaw_closed = False
+            # Update jaw_closed and is_clutch based on button states
+            self.jaw_closed = bool(msg.buttons[1])
+            self.is_clutch = bool(msg.buttons[0]) # press to toggle clutch mode
+    
     def robot_callback(self, msg):
         with self.lock:
             # Update initial_pose to the last target_pose
             self.initial_pose = self.target_pose
-            self.target_pose = msg  # Update target_pose to the latest pose message
+            # Update target_pose to the latest pose message
+            self.target_pose = msg  
+            # Access the current Cartesian position of the arm
+            if self.teleop_runner is not None and self.initial_pose is not None and self.target_pose is not None:
+                try:
+                    cp = self.teleop_runner.arm.setpoint_cp()                    
+                except Exception as e:
+                     self.get_logger().warn(f'setpoint_cp not ready: {e}')
+                     return  # just skip this callback if not ready
+
+                self.diff = np.array([self.target_pose.position.y - self.initial_pose.position.y,
+                                      self.target_pose.position.x - self.initial_pose.position.x,
+                                      -(self.target_pose.position.z - self.initial_pose.position.z)])
+                
+                if np.linalg.norm(self.diff) > 0.001:
+                    self.get_logger().info("Data loss detected, resetting goal position.")
+                    return
+                # Update the goal position based on clutch mode
+                if not self.is_clutch:
+                    cp.p += PyKDL.Vector(self.diff[0], self.diff[1], self.diff[2])
+                self.goal = cp
+                    
+
 class run_teleoperation:
     def __init__(self, ral, arm_name, teleop, period=0.0025):
         print(f'> Configuring dvrk_arm_test for {arm_name}')
@@ -45,7 +72,9 @@ class run_teleoperation:
         self.arm = dvrk.psm(ral=ral, arm_name=arm_name)
         self.ecm = dvrk.ecm(ral=ral, arm_name='ECM')
         time.sleep(0.2)
+    
 
+    
     def home(self):
         self.ral.check_connections()
         print('> Starting enable')
@@ -57,7 +86,7 @@ class run_teleoperation:
             print('  ! Failed to home within 10 seconds')
             self.ral.shutdown()
         print('< Home complete')
-        # utility to position tool/camera deep enough before cartesian examples
+
 
     def teleop_servo_cp(self):
         print('> Waiting for target pose from subscriber...')
@@ -67,55 +96,18 @@ class run_teleoperation:
         while rclpy.ok():
             # Get the latest pose from subscriber safely
             with self.teleop.lock:
-                target_pose = self.teleop.target_pose
-                initial_pose = self.teleop.initial_pose
-                jaw_closed = self.teleop.jaw_closed
-            if target_pose is not None:
-                # Create a new goal from received pose
-                goal = PyKDL.Frame()
-                omni_translation = PyKDL.Frame()
-                cp = self.arm.setpoint_cp()
-                if initial_pose is not None:
-                    omni_translation.p = PyKDL.Vector((target_pose.position.x - initial_pose.position.x),
-                                                      target_pose.position.y - initial_pose.position.y,
-                                                      target_pose.position.z - initial_pose.position.z)
-                    # initial_rotation = PyKDL.Rotation.RotZ(math.radians(180)) * PyKDL.Rotation.Quaternion(
-                    #     initial_pose.orientation.x,
-                    #     initial_pose.orientation.y,
-                    #     initial_pose.orientation.z,
-                    #     initial_pose.orientation.w)
-                    # target_rotation = PyKDL.Rotation.Quaternion(
-                    #     target_pose.orientation.x,
-                    #     target_pose.orientation.y,
-                    #     target_pose.orientation.z,
-                    #     target_pose.orientation.w)
-                    # omni_flip = PyKDL.Rotation(1, 0, 0,
-                    #                    0, 1, 0,
-                    #                    0, 0, 1)
-                    
-                    # # target_rotation = omni_flip * target_rotation * omni_flip
-                    # initial_rotation = omni_flip * initial_rotation * omni_flip
-                    # omni_translation.M  = target_rotation
-                else:
-                    omni_translation.p = PyKDL.Vector(0.0, 0.0, 0.0)
-                    omni_translation.M = cp.M
+                inv3_goal = self.teleop.goal
+            
+            if inv3_goal is not None:
                 
-                # goal.M = PyKDL.Rotation.Quaternion(target_pose.orientation.x,
-                #                                    target_pose.orientation.y,
-                #                                    target_pose.orientation.z,
-                #                                    target_pose.orientation.w)
-                dvrk_rotation = PyKDL.Rotation.Quaternion(
-                    np.sqrt(0.5),
-                    0,
-                    np.sqrt(0.5),
-                    0)
-                goal.p = cp.p + omni_translation.p
-                goal.M = cp.M
-                self.arm.servo_cp(goal)
-                if jaw_closed:
-                    self.arm.jaw.servo_jp(np.array([np.radians(0)]))
+                self.arm.servo_cp(inv3_goal)
+
+                if self.teleop.jaw_closed:
+                    # self.arm.jaw.servo_jp(np.array([np.radians(0)]))
+                    self.arm.jaw.servo_jp(np.array([np.radians(-10)]))
                 else:
                     self.arm.jaw.servo_jp(np.array([np.radians(30)]))
+
                 # Ensure loop runs at desired frequency
                 sleep_rate.sleep()
 
@@ -135,7 +127,7 @@ class run_teleoperation:
             joint_goal[3] = np.radians(0)
             joint_goal[4] = -0.00505554962626077
             joint_goal[5] = -0.9518453492970927
-            start_angle = np.radians(30.0)
+            start_angle = np.radians(20.0)
             self.arm.move_jp(joint_goal).wait()
             self.arm.jaw.open(angle = start_angle).wait()
             print('  < ready for cartesian mode')
@@ -143,7 +135,7 @@ class run_teleoperation:
             # set in position joint mode
             camera_goal[0] = np.radians(0)
             camera_goal[1] = np.radians(-5)
-            camera_goal[2] = 0.20
+            camera_goal[2] = 0.10
             camera_goal[3] = np.radians(0)
             self.ecm.move_jp(camera_goal).wait()
             print('  > camera position ready')
@@ -183,6 +175,7 @@ if __name__ == '__main__':
     ral = crtk.ral('dvrk_arm_test')
     application = run_teleoperation(
         ral, args.arm if args.arm else 'PSM1', omni_node, args.period)
+    omni_node.teleop_runner = application
     ral.on_shutdown(application.on_shutdown)
     ral.spin_and_execute(application.run)
 
