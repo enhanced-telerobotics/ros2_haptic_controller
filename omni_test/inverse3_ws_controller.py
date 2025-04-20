@@ -17,7 +17,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Vector3, PoseStamped
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Header
-import time
+import requests
 
 class Inverse3Node(Node):
     def __init__(self):
@@ -71,7 +71,21 @@ class Inverse3Node(Node):
         button_msg.buttons = [int(b) for b in buttons.values()] if buttons else []
         self.button_publisher.publish(button_msg)
 
-
+    def enable_gravity_compensation(self, device_id, enable=True, gravity_scaling_factor=1.0):
+        url = "http://localhost:10000/gravity_compensation"
+        payload = {
+            "device_id": device_id,
+            "enable": enable,
+            "gravity_scaling_factor": gravity_scaling_factor
+        }
+        try:
+            response = requests.post(url, json=payload)
+            if response.status_code == 200:
+                self.get_logger().info(f"Gravity compensation response: {response.json()}")
+            else:
+                self.get_logger().error(f"Failed to enable gravity compensation: {response.status_code}")
+        except Exception as e:
+            self.get_logger().error(f"Error during gravity compensation request: {e}")
 async def websocket_loop(node: Inverse3Node):
     uri = 'ws://localhost:10001'
     first_message = True
@@ -91,10 +105,12 @@ async def websocket_loop(node: Inverse3Node):
             if first_message:
                 first_message = False
                 if not inverse3_data:
-                    print("No Inverse3 device found.")
+                    node.get_logger().error("No Inverse3 device found.")
                     break
                 inverse3_device_id = inverse3_data.get("device_id")
-                print(f"Inverse3 device ID: {inverse3_device_id}")
+                node.get_logger().info(f"Inverse3 device ID: {inverse3_device_id}")
+                # Enable gravity compensation on the first message
+                node.enable_gravity_compensation(inverse3_device_id, enable=True)
 
             position = inverse3_data["state"].get("cursor_position", {})
             velocity = inverse3_data["state"].get("cursor_velocity", {})

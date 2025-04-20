@@ -8,11 +8,7 @@ import PyKDL
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
-<<<<<<< HEAD
 import numpy as np
-=======
-import numpy
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
 import math
 
 
@@ -24,10 +20,7 @@ class Omni(Node):
         self.target_pose = None  # Stores the latest pose message
         self.initial_pose = None  # Stores the last received pose message
         self.lock = threading.Lock()  # Prevents race conditions
-<<<<<<< HEAD
         self.diff = np.zeros(3)
-=======
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
 
     def robot_callback(self, msg):
         with self.lock:
@@ -55,21 +48,14 @@ class device:
 
 
 class run_teleoperation:
-<<<<<<< HEAD
     def __init__(self, ral, arm_name, teleop, period=0.0025):
-=======
-    def __init__(self, ral, arm_name, teleop, period=0.01):
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
         print(f'> Configuring dvrk_arm_test for {arm_name}')
         self.ral = ral
         self.arm_name = arm_name
         self.teleop = teleop
         self.period = period
         self.arm = device(ral=ral, arm_name=arm_name)
-<<<<<<< HEAD
         self.ecm = device(ral=ral, arm_name='ECM')
-=======
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
         time.sleep(0.2)
 
     def home(self):
@@ -89,18 +75,7 @@ class run_teleoperation:
         print('> Waiting for target pose from subscriber...')
 
         sleep_rate = self.ral.create_rate(1.0 / self.period)
-<<<<<<< HEAD
         self.prepare_cartesian()
-=======
-        jp, ts = self.arm.setpoint_jp()
-
-        s = numpy.copy(jp)
-        s[0] = 0.0
-        s[1] = 0.0
-        s[2] = 0.12
-        s[3] = 0.0
-        self.arm.move_jp(s).wait()
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
         while rclpy.ok():
             # Get the latest pose from subscriber safely
             with self.teleop.lock:
@@ -110,7 +85,6 @@ class run_teleoperation:
                 # Create a new goal from received pose
                 goal = PyKDL.Frame()
                 omni_translation = PyKDL.Frame()
-<<<<<<< HEAD
                 cp = self.arm.setpoint_cp()
                 if initial_pose is not None:
                     omni_translation.p = PyKDL.Vector(-(target_pose.position.y - initial_pose.position.y),
@@ -137,16 +111,10 @@ class run_teleoperation:
                     omni_translation.p = PyKDL.Vector(0.0, 0.0, 0.0)
                     omni_translation.M = cp.M
                 
-=======
-                omni_translation.p = PyKDL.Vector((target_pose.position.x - initial_pose.position.x),
-                                                  (target_pose.position.y - initial_pose.position.y),
-                                                  (target_pose.position.z - initial_pose.position.z))
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
                 # goal.M = PyKDL.Rotation.Quaternion(target_pose.orientation.x,
                 #                                    target_pose.orientation.y,
                 #                                    target_pose.orientation.z,
                 #                                    target_pose.orientation.w)
-<<<<<<< HEAD
                 dvrk_rotation = PyKDL.Rotation.Quaternion(
                     np.sqrt(0.5),
                     0,
@@ -154,18 +122,12 @@ class run_teleoperation:
                     0)
                 goal.p = cp.p + omni_translation.p
                 goal.M = cp.M
-=======
-                cp, _ = self.arm.setpoint_cp()
-                goal.p = cp.p + omni_translation.p
-                goal.M = cp.M  # Keep the same orientation
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
                 self.arm.servo_cp(goal)
                 # Ensure loop runs at desired frequency
                 sleep_rate.sleep()
 
     def prepare_cartesian(self):
         # make sure the camera is past the cannula and tool vertical
-<<<<<<< HEAD
         jp = self.arm.setpoint_jp()
         ecm_jp = self.ecm.setpoint_jp()
 
@@ -203,21 +165,6 @@ class run_teleoperation:
             print('  > camera position ready')
             print('  < ready for cartesian mode')
             time.sleep(0.5)
-=======
-        jp, ts = self.arm.setpoint_jp()
-
-        goal = numpy.copy(jp)
-        if ((self.arm_name.endswith('PSM1')) or (self.arm_name.endswith('PSM2'))
-                or (self.arm_name.endswith('PSM3')) or (self.arm_name.endswith('ECM'))):
-            print('  > preparing for cartesian motion')
-            # set in position joint mode
-            goal[0] = 0.0
-            goal[1] = 0.0
-            goal[2] = 0.12
-            goal[3] = 0.0
-            self.arm.move_jp(goal).wait()
-            print('  < ready for cartesian mode')
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90
 
     def run(self):
         self.home()
@@ -256,10 +203,5 @@ if __name__ == '__main__':
     ral.spin_and_execute(application.run)
 
     # Shutdown ROS 2 properly
-<<<<<<< HEAD
     omni_thread.join()
     rclpy.shutdown()
-=======
-    rclpy.shutdown()
-    omni_thread.join()
->>>>>>> b0825401d3bd70ebcd277c741ce830faecac6b90

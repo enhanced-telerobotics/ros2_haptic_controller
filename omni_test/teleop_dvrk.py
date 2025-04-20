@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import Joy
+from std_msgs.msg import Bool
 import threading
 import time
 import PyKDL
@@ -11,14 +12,15 @@ import argparse
 import crtk
 
 
-
-class Omni(Node):
+class HD(Node):
     def __init__(self):
-        super().__init__('omni_teleop_node')
+        super().__init__('HD_teleop_node')
         self.robot_subscriber = self.create_subscription(
             Pose, 'delayed_pose', self.robot_callback, 10)
         self.inv3_btn_subscriber = self.create_subscription(
             Joy, 'inv3_btn', self.btn_callback, 10)
+        self.force_lock_publisher = self.create_publisher(
+            Bool, 'HD_force_lock', 10)
         self.target_pose = None  # Stores the latest pose message
         self.initial_pose = None  # Stores the last received pose message
         self.jaw_closed = False
@@ -49,18 +51,18 @@ class Omni(Node):
                      self.get_logger().warn(f'setpoint_cp not ready: {e}')
                      return  # just skip this callback if not ready
 
-                self.diff = np.array([self.target_pose.position.y - self.initial_pose.position.y,
-                                      self.target_pose.position.x - self.initial_pose.position.x,
+                self.diff = np.array([-(self.target_pose.position.y - self.initial_pose.position.y),
+                                      -(self.target_pose.position.x - self.initial_pose.position.x),
                                       -(self.target_pose.position.z - self.initial_pose.position.z)])
                 
-                if np.linalg.norm(self.diff) > 0.001:
+                if np.linalg.norm(self.diff) > 0.005:
                     self.get_logger().info("Data loss detected, resetting goal position.")
                     return
                 # Update the goal position based on clutch mode
                 if not self.is_clutch:
                     cp.p += PyKDL.Vector(self.diff[0], self.diff[1], self.diff[2])
                 self.goal = cp
-                    
+                print(f'Goal position updated: {self.goal.p[0]:.3f}, {self.goal.p[1]:.3f}, {self.goal.p[2]:.3f}')
 
 class run_teleoperation:
     def __init__(self, ral, arm_name, teleop, period=0.0025):
@@ -99,12 +101,12 @@ class run_teleoperation:
                 inv3_goal = self.teleop.goal
             
             if inv3_goal is not None:
-                
+                                
                 self.arm.servo_cp(inv3_goal)
 
                 if self.teleop.jaw_closed:
                     # self.arm.jaw.servo_jp(np.array([np.radians(0)]))
-                    self.arm.jaw.servo_jp(np.array([np.radians(-10)]))
+                    self.arm.jaw.servo_jp(np.array([np.radians(-5)]))
                 else:
                     self.arm.jaw.servo_jp(np.array([np.radians(30)]))
 
@@ -142,6 +144,29 @@ class run_teleoperation:
             print('  < ready for cartesian mode')
             time.sleep(0.5)
 
+    def userstudy_servo_cp(self, goal, user_start=False):
+        """
+        This function is used to servo the arm to a specific Cartesian position.
+        It toggles on and off based on user study flow.
+        """
+        if user_start:
+            if not hasattr(self, '_study_started') or not self._study_started:
+                self.release_force_lock()
+                time.sleep(0.5)
+                self._study_started = True
+            self.arm.servo_cp(goal)
+        else:
+            if hasattr(self, '_study_started') and self._study_started:
+                self.reset_study()
+                self._study_started = False
+
+    def release_force_lock(self):
+        self.teleop.force_lock_publisher.publish(Bool(data=False))
+    def reset_study(self):
+        self.teleop.force_lock_publisher.publish(Bool(data=True))
+        self.home()
+        self.prepare_cartesian()
+
     def run(self):
         self.home()
         self.teleop_servo_cp()
@@ -166,20 +191,20 @@ if __name__ == '__main__':
     rclpy.init(args=unknown)
 
     # Start Teleop Node in a Separate Thread
-    omni_node = Omni()
-    omni_thread = threading.Thread(target=rclpy.spin, args=(omni_node,))
-    omni_thread.daemon = True  # Ensures it exits with the main script
-    omni_thread.start()
+    HD_node = HD()
+    HD_thread = threading.Thread(target=rclpy.spin, args=(HD_node,))
+    HD_thread.daemon = True  # Ensures it exits with the main script
+    HD_thread.start()
 
     # Initialize CRTK
-    ral = crtk.ral('dvrk_arm_test')
+    ral = crtk.ral('dvrk_teleop')
     application = run_teleoperation(
-        ral, args.arm if args.arm else 'PSM1', omni_node, args.period)
-    omni_node.teleop_runner = application
+        ral, args.arm if args.arm else 'PSM1', HD_node, args.period)
+    HD_node.teleop_runner = application
     ral.on_shutdown(application.on_shutdown)
     ral.spin_and_execute(application.run)
 
     # Shutdown ROS 2 properly
     rclpy.shutdown()
-    omni_thread.join()
+    HD_thread.join()
 
