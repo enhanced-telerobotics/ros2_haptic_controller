@@ -14,12 +14,13 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='erie_lab',
-    maintainer_email='erie_lab@todo.todo',
+    maintainer_email='sxj749@case.edu',
     description='TODO: Package description',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'inv3_teleop_dvrk = omni_test.teleop_dvrk:main'
         ],
     },
 )

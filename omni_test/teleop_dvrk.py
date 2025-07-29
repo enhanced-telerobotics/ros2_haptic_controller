@@ -1,15 +1,17 @@
 import numpy as np
 import dvrk
+import threading
+import time
+import argparse
+import crtk
+import PyKDL
+
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Bool
-import threading
-import time
-import PyKDL
-import argparse
-import crtk
+from erie_custom_interfaces.msg import UserStudyState
 
 
 class HD(Node):
@@ -18,20 +20,23 @@ class HD(Node):
         self.robot_subscriber = self.create_subscription(
             Pose, 'delayed_pose', self.robot_callback, 10)
         self.inv3_btn_subscriber = self.create_subscription(
-            Joy, 'delayed_button', self.btn_callback, 10)
+            Joy, '/inv3/buttons', self.btn_callback, 10)
         self.jaw_btn_subscriber = self.create_subscription(
             Joy, 'grasp_cmd', self.jaw_btn_callback, 10)
         self.force_lock_publisher = self.create_publisher(
-            Bool, '/inv3/HD_force_lock', 10)
+            Bool, '/HD_force_lock', 10)
+        self.study_subscriber = self.create_subscription(
+            UserStudyState, '/study_state', self.study_callback, 10)
         self.target_pose = None  # Stores the latest pose message
         self.initial_pose = None  # Stores the last received pose message
         self.jaw_closed = False
-        self.study_started = False
+        self.robot_is_active = False
         self.is_clutch = False
-        self.diff = np.zeros(3)  # Difference between target and current position
+        # Difference between target and current position
+        self.diff = np.zeros(3)
         self.teleop_runner = None  # Placeholder for teleoperation runner
         self.lock = threading.Lock()  # Prevents race conditions
-        self.clutch_safety = False 
+        self.clutch_safety = False
         self.goal = None
         self.current_cp = None
         self.R_to_HSRV = PyKDL.Rotation(
@@ -41,39 +46,41 @@ class HD(Node):
         )
         self.thread_running = True
         threading.Thread(target=self.update_dvrk_cp, daemon=True).start()
-        
-    def btn_callback(self, msg):
-        with self.lock:
-            if msg.buttons[1] == 1:
-                self.study_started = not self.study_started
-            if not self.clutch_safety:
-                self.is_clutch = bool(msg.buttons[0]) # press to toggle clutch mode
-    def jaw_btn_callback(self, msg):
-        with self.lock:
-            self.jaw_closed = bool(msg.buttons[6])
-    def robot_callback(self, msg):
-        with self.lock:
-            # Update initial_pose to the last target_pose
-            self.initial_pose = self.target_pose
-            # Update target_pose to the latest pose message
-            self.target_pose = msg  
-            # Access the current Cartesian position of the arm
-            if self.teleop_runner is not None and self.initial_pose is not None and self.target_pose is not None:
 
-                self.diff = np.array([(self.target_pose.position.y - self.initial_pose.position.y),
-                            -(self.target_pose.position.x - self.initial_pose.position.x),
-                            (self.target_pose.position.z - self.initial_pose.position.z)])
-                
-                if np.linalg.norm(self.diff) > 0.01:
-                    self.get_logger().info(f"Data loss detected, resetting goal position. Diff exceed {np.linalg.norm(self.diff) * 1000} mm")
-                    return
-                # Update the goal position based on clutch mode
-                if self.current_cp is not None:
-                    if not self.is_clutch:
-                        self.current_cp.p += self.R_to_HSRV * PyKDL.Vector(self.diff[0], self.diff[1], self.diff[2])
-                        self.teleop_runner.arm.servo_cp(self.current_cp)
-                
-                # Calculate and log FPS
+    def btn_callback(self, msg):
+        if not self.clutch_safety:
+            # press to toggle clutch mode
+            self.is_clutch = bool(msg.buttons[0])
+
+    def jaw_btn_callback(self, msg):
+        self.jaw_closed = bool(msg.buttons[6])
+
+    def robot_callback(self, msg):
+        # Update initial_pose to the last target_pose
+        self.initial_pose = self.target_pose
+        # Update target_pose to the latest pose message
+        self.target_pose = msg
+        # Access the current Cartesian position of the arm
+        if self.teleop_runner is not None and self.initial_pose is not None and self.target_pose is not None:
+
+            self.diff = np.array([(self.target_pose.position.y - self.initial_pose.position.y),
+                                  -(self.target_pose.position.x -
+                                    self.initial_pose.position.x),
+                                  (self.target_pose.position.z - self.initial_pose.position.z)])
+
+            if np.linalg.norm(self.diff) > 0.01:
+                self.get_logger().info(
+                    f"Data loss detected, resetting goal position. Diff exceed {np.linalg.norm(self.diff) * 1000} mm")
+                return
+            # Update the goal position based on clutch mode
+            if self.current_cp is not None:
+                if not self.is_clutch:
+                    self.current_cp.p += self.R_to_HSRV * \
+                        PyKDL.Vector(
+                            self.diff[0], self.diff[1], self.diff[2])
+                    self.teleop_runner.arm.servo_cp(self.current_cp)
+
+            # Calculate and log FPS
     def update_dvrk_cp(self):
         while rclpy.ok() and self.thread_running:
             with self.lock:
@@ -84,6 +91,11 @@ class HD(Node):
                         self.get_logger().warn('setpoint_cp not ready')
             time.sleep(0.005)
 
+    def study_callback(self, msg):
+        if msg.curr_trial_stage == 1 or msg.curr_trial_stage == 3:
+            self.robot_is_active = False
+        elif msg.curr_trial_stage == 2:
+            self.robot_is_active = True
 
 
 class run_teleoperation:
@@ -96,9 +108,7 @@ class run_teleoperation:
         self.arm = dvrk.psm(ral=ral, arm_name=arm_name)
         self.ecm = dvrk.ecm(ral=ral, arm_name='ECM')
         time.sleep(0.2)
-    
 
-    
     def home(self):
         self.ral.check_connections()
         print('> Starting enable')
@@ -111,7 +121,6 @@ class run_teleoperation:
             self.ral.shutdown()
         print('< Home complete')
 
-
     def teleop_servo_cp(self):
         print('> Waiting for target pose from subscriber...')
 
@@ -120,14 +129,17 @@ class run_teleoperation:
         while rclpy.ok():
             # Get the latest pose from subscriber safely
             with self.teleop.lock:
-                self.userstudy_controller(user_start=self.teleop.study_started)
-                if self.teleop.jaw_closed:
-                    # self.arm.jaw.servo_jp(np.array([np.radians(0)]))
-                    self.arm.jaw.servo_jp(np.array([np.radians(-5)]))
-                else:
-                    self.arm.jaw.servo_jp(np.array([np.radians(30)]))
+                self.userstudy_controller(
+                    user_start=self.teleop.robot_is_active)
 
-                # Ensure loop runs at desired frequency
+                if self.teleop.jaw_closed:
+                    self.arm.jaw.move_jp(
+                        np.array([np.radians(-5)]))
+                    # time.sleep(0.2)
+                else:
+                    self.arm.jaw.move_jp(
+                        np.array([np.radians(30)]))
+                    # time.sleep(0.2)
                 sleep_rate.sleep()
 
     def prepare_cartesian(self):
@@ -147,9 +159,8 @@ class run_teleoperation:
             joint_goal[3] = np.radians(0)
             joint_goal[4] = -0.00505554962626077
             joint_goal[5] = -0.9518453492970927
-            start_angle = np.radians(20.0)
             self.arm.move_jp(joint_goal).wait()
-            self.arm.jaw.open(angle = start_angle).wait()
+            # self.arm.jaw.open().wait()
             print('  < ready for cartesian mode')
             print('  > preparing for camera position')
             # set in position joint mode
@@ -189,11 +200,11 @@ class run_teleoperation:
         self.teleop.force_lock_publisher.publish(Bool(data=True))
         time.sleep(1)
         print('  > force lock')
-    
+
     def reset_study(self):
         self.home()
-        # self.safe_force_lock()
         self.prepare_cartesian()
+        self.safe_force_lock()
 
     def run(self):
         self.home()
@@ -203,7 +214,8 @@ class run_teleoperation:
         print('>> User-defined shutdown callback')
         self.ral.shutdown()
 
-if __name__ == '__main__':
+
+def main():
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('-a', '--arm', type=str,
@@ -237,3 +249,6 @@ if __name__ == '__main__':
     HD_node.thread_running = False  # Stop the update thread
     HD_thread.join()
 
+
+if __name__ == '__main__':
+    main()
